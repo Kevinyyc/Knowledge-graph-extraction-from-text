@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Graph viewer</title>
+<script src="https://cdn.jsdelivr.net/npm/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+<style>
+:root {
+  --bg: #f7f7f5; --panel: #ffffff; --text: #1f2328; --muted: #6a737d; --line: #e1e4e8;
+  --accent: #2f6fdd; --correct: #2e9d5b; --wrong: #d64545; --missed: #e0a030; --gold: #4a5568;
+  --highlight: #fff3c4;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16181c; --panel: #1f2227; --text: #e6e6e6; --muted: #9aa0a6; --line: #33373e;
+    --accent: #6ea0ff; --correct: #4cc27f; --wrong: #f07070; --missed: #f0b850; --gold: #b8c0cc;
+    --highlight: #4a4020;
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; font: 14px/1.45 system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); }
+header { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; padding: 10px 16px;
+  background: var(--panel); border-bottom: 1px solid var(--line); }
+header h1 { font-size: 16px; margin: 0; }
+label { color: var(--muted); font-size: 13px; }
+select, input[type=text] { font: inherit; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--bg); color: var(--text); }
+.tabs button { font: inherit; padding: 4px 12px; border: 1px solid var(--line); background: var(--bg);
+  color: var(--text); cursor: pointer; }
+.tabs button:first-child { border-radius: 6px 0 0 6px; }
+.tabs button:last-child { border-radius: 0 6px 6px 0; }
+.tabs button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.scores { display: flex; gap: 14px; font-size: 13px; color: var(--muted); }
+.scores b { color: var(--text); }
+.legend { display: flex; gap: 12px; font-size: 12px; color: var(--muted); align-items: center; flex-wrap: wrap; }
+.swatch { display: inline-block; width: 18px; height: 3px; vertical-align: middle; margin-right: 4px; }
+.dashed { background: none; border-top: 2px dashed var(--missed); height: 0; }
+main { display: grid; grid-template-columns: 300px 1fr; height: calc(100vh - 58px); }
+aside { border-right: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-height: 0; }
+aside .controls { padding: 10px; display: flex; flex-direction: column; gap: 6px; border-bottom: 1px solid var(--line); }
+aside ul { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; }
+aside li { padding: 6px 10px; border-bottom: 1px solid var(--line); cursor: pointer; }
+aside li:hover { background: var(--bg); }
+aside li.active { background: var(--highlight); }
+aside li .meta { font-size: 12px; color: var(--muted); }
+.content { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.panels { display: grid; grid-template-columns: 1fr 1fr; flex: 1; min-height: 0; }
+.panel { position: relative; border-right: 1px solid var(--line); min-height: 0; }
+.panel:last-child { border-right: none; }
+.panel h2 { position: absolute; top: 6px; left: 10px; margin: 0; font-size: 13px; color: var(--muted);
+  font-weight: 600; z-index: 1; pointer-events: none; }
+.network { position: absolute; inset: 0; }
+.details { height: 34%; min-height: 140px; overflow-y: auto; border-top: 1px solid var(--line);
+  background: var(--panel); padding: 10px 14px; }
+.details h3 { margin: 0 0 6px; font-size: 14px; }
+.details p { margin: 4px 0; }
+.sent { margin: 2px 0; color: var(--muted); }
+.sent.on { color: var(--text); background: var(--highlight); }
+.sent b { color: var(--accent); font-weight: 600; }
+.tag { display: inline-block; padding: 0 6px; border-radius: 4px; font-size: 12px; color: #fff; }
+.tag.correct { background: var(--correct); } .tag.wrong { background: var(--wrong); }
+.tag.missed { background: var(--missed); }
+.empty { color: var(--muted); }
+@media (max-width: 800px) {
+  main { grid-template-columns: 1fr; height: auto; }
+  aside { max-height: 40vh; }
+  .panels { grid-template-columns: 1fr; height: 120vh; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>Gold vs predicted graph <span id="split" class="empty"></span></h1>
+  <div class="tabs"><button data-view="document" class="active">Document</button><button data-view="corpus">Corpus</button></div>
+  <label>Run <select id="run"></select></label>
+  <div class="scores" id="scores"></div>
+  <label><input type="checkbox" id="show-missed" checked> missed facts on the prediction</label>
+  <label><input type="checkbox" id="show-labels" checked> relation names</label>
+  <div class="legend">
+    <span><span class="swatch" style="background:var(--correct)"></span>correct</span>
+    <span><span class="swatch" style="background:var(--wrong)"></span>wrong</span>
+    <span><span class="swatch dashed"></span>missed</span>
+  </div>
+</header>
+<noscript><p style="padding:16px">This page needs JavaScript: open it in a web browser (for example
+  <code>open results/graph_viewer_dev.html</code>), not in a file preview.</p></noscript>
+<main>
+  <aside>
+    <div class="controls" id="document-controls">
+      <input type="text" id="doc-search" placeholder="Search a document title">
+      <label>Sort <select id="doc-sort">
+        <option value="index">dataset order</option>
+        <option value="f1">worst F1 first</option>
+        <option value="missed">most missed facts</option>
+        <option value="wrong">most wrong facts</option>
+      </select></label>
+    </div>
+    <div class="controls" id="corpus-controls" hidden>
+      <input type="text" id="node-search" placeholder="Search an entity (name or Q-id)">
+      <label>Neighbourhood <select id="hops"><option value="1">1 hop</option><option value="2">2 hops</option></select></label>
+      <label>Most connected entities are listed first.</label>
+    </div>
+    <ul id="list"></ul>
+  </aside>
+  <section class="content">
+    <div class="panels">
+      <div class="panel"><h2>Gold graph (dataset)</h2><div class="network" id="gold-net"></div></div>
+      <div class="panel"><h2 id="pred-title">Predicted graph</h2><div class="network" id="pred-net"></div></div>
+    </div>
+    <div class="details" id="details"><p class="empty">Click a fact (an edge) or an entity (a node) for details.</p></div>
+  </section>
+</main>
+<script>
+const DATA = __VIEWER_DATA__;
+const TYPE_COLORS = { PER: "#5b8def", ORG: "#9b6bd6", LOC: "#2fa39a", TIME: "#d9822b", NUM: "#c2557a", MISC: "#7d8a99" };
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const state = { view: "document", run: 0, doc: null, node: null };
+const MAX_FACTS = 150, MAX_LABELLED = 80;
+const $ = id => document.getElementById(id);
+const relName = code => DATA.relations[code] || code;
+const escapeHtml = text => String(text).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+// ---------- Comparison of facts ----------
+// A fact is [head, relation, tail]; it is correct, missed (gold only) or wrong (predicted only).
+function compare(gold, predicted) {
+  const key = f => f[0] + "|" + f[1] + "|" + f[2];
+  const goldMap = new Map(gold.map(f => [key(f), f]));
+  const predMap = new Map(predicted.map(f => [key(f), f]));
+  const facts = [];
+  for (const [k, f] of goldMap) facts.push({ fact: f, status: predMap.has(k) ? "correct" : "missed", pred: predMap.get(k) });
+  for (const [k, f] of predMap) if (!goldMap.has(k)) facts.push({ fact: f, status: "wrong", pred: f });
+  return facts;
+}
+
+function counts(facts) {
+  const c = { correct: 0, missed: 0, wrong: 0 };
+  facts.forEach(f => c[f.status]++);
+  const p = c.correct / (c.correct + c.wrong || 1), r = c.correct / (c.correct + c.missed || 1);
+  c.f1 = c.correct ? 2 * p * r / (p + r) : 0;
+  return c;
+}
+
+function documentFacts(doc, run) {
+  return compare(doc.gold.map(([h, t, r, ev]) => [h, r, t, ev]),
+                 doc.runs[run].map(([h, t, r, s]) => [h, r, t, s]));
+}
+
+// ---------- Two synchronised networks ----------
+let goldNet = null, predNet = null, syncing = false;
+
+function edgeColor(status) {
+  return { correct: css("--correct"), wrong: css("--wrong"), missed: css("--missed") }[status];
+}
+
+function layout(nodes, edges) {
+  // One stabilisation on the union of both graphs, so an entity sits at the same place in both panels.
+  const box = document.createElement("div");
+  box.style.cssText = "position:absolute;width:800px;height:600px;left:-10000px;top:0";
+  document.body.appendChild(box);
+  const net = new vis.Network(box, { nodes, edges: edges.map(e => ({ from: e.from, to: e.to })) }, {
+    physics: { solver: "forceAtlas2Based", forceAtlas2Based: { gravitationalConstant: -60, springLength: 110 },
+               stabilization: { iterations: 400 } },
+    layout: { randomSeed: 7, improvedLayout: nodes.length < 150 },
+  });
+  const positions = net.getPositions();
+  net.destroy();
+  box.remove();
+  return positions;
+}
+
+function visEdges(facts, panel, showLabels) {
+  // Curve parallel edges apart so several relations between two entities stay readable.
+  const seen = new Map();
+  return facts.map((f, i) => {
+    const pair = [f.from, f.to].sort().join("|");
+    const k = seen.get(pair) || 0;
+    seen.set(pair, k + 1);
+    const color = panel === "gold" ? (f.status === "missed" ? css("--missed") : css("--gold")) : edgeColor(f.status);
+    return {
+      id: i, from: f.from, to: f.to, arrows: "to",
+      label: showLabels ? f.label : undefined,
+      title: f.label + (f.score != null ? " (" + f.score + ")" : ""),
+      color: { color, highlight: color, hover: color },
+      dashes: panel === "pred" && f.status === "missed",
+      width: panel === "pred" && f.status !== "missed" ? 1.5 + 2 * (f.score || 0) : 1.5,
+      font: { size: 11, color: css("--muted"), strokeWidth: 3, strokeColor: css("--panel"), align: "middle" },
+      smooth: { enabled: true, type: k % 2 ? "curvedCCW" : "curvedCW", roundness: 0.12 + 0.12 * Math.floor(k / 2) },
+    };
+  });
+}
+
+function draw(nodes, facts, onSelect) {
+  if (typeof vis === "undefined") {
+    // The list and the details still work: only the drawing needs vis-network.
+    ["gold-net", "pred-net"].forEach(id => { $(id).innerHTML = `<p class="empty" style="padding:40px 16px">
+      vis-network could not be loaded from cdn.jsdelivr.net: the graphs need an Internet connection.</p>`; });
+    return;
+  }
+  // Relation names only stay readable on small drawings.
+  const showMissed = $("show-missed").checked, showLabels = $("show-labels").checked && facts.length <= MAX_LABELLED;
+  const positions = layout(nodes, facts);
+  const visNodes = nodes.map(n => ({
+    ...n, x: positions[n.id].x, y: positions[n.id].y, shape: "dot", size: n.size || 10,
+    color: { background: TYPE_COLORS[n.type] || "#888", border: n.focus ? css("--text") : TYPE_COLORS[n.type] || "#888",
+             highlight: { background: TYPE_COLORS[n.type] || "#888", border: css("--text") } },
+    borderWidth: n.focus ? 3 : 1,
+    font: { size: 12, color: css("--text"), strokeWidth: 3, strokeColor: css("--panel") },
+  }));
+  const goldFacts = facts.filter(f => f.status !== "wrong");
+  const predFacts = facts.filter(f => f.status !== "missed" || showMissed);
+  const options = { physics: false, interaction: { dragNodes: false, hover: true, tooltipDelay: 150 } };
+  [goldNet, predNet].forEach(n => n && n.destroy());
+  goldNet = new vis.Network($("gold-net"), { nodes: visNodes, edges: visEdges(goldFacts, "gold", showLabels) }, options);
+  predNet = new vis.Network($("pred-net"), { nodes: visNodes, edges: visEdges(predFacts, "pred", showLabels) }, options);
+  const lists = { gold: goldFacts, pred: predFacts };
+  [[goldNet, predNet, "gold"], [predNet, goldNet, "pred"]].forEach(([a, b, panel]) => {
+    const follow = () => { if (syncing) return; syncing = true; b.moveTo({ position: a.getViewPosition(), scale: a.getScale() }); syncing = false; };
+    a.on("zoom", follow); a.on("dragging", follow); a.on("dragEnd", follow);
+    a.on("click", params => {
+      if (params.edges.length && !params.nodes.length) onSelect({ fact: lists[panel][params.edges[0]] });
+      else if (params.nodes.length) onSelect({ node: params.nodes[0] });
+    });
+  });
+  goldNet.fit({ animation: false });
+  predNet.moveTo({ position: goldNet.getViewPosition(), scale: goldNet.getScale() });
+}
+
+// ---------- Document view ----------
+function documentRows() {
+  const query = $("doc-search").value.toLowerCase();
+  const rows = DATA.documents.map((doc, index) => ({ doc, index, c: counts(documentFacts(doc, state.run)) }))
+    .filter(row => row.doc.title.toLowerCase().includes(query));
+  const sort = $("doc-sort").value;
+  if (sort === "f1") rows.sort((a, b) => a.c.f1 - b.c.f1);
+  if (sort === "missed") rows.sort((a, b) => b.c.missed - a.c.missed);
+  if (sort === "wrong") rows.sort((a, b) => b.c.wrong - a.c.wrong);
+  return rows;
+}
+
+function renderDocumentList() {
+  $("list").innerHTML = documentRows().map(({ doc, index, c }) =>
+    `<li data-index="${index}" class="${index === state.doc ? "active" : ""}">${escapeHtml(doc.title)}
+     <div class="meta">F1 ${(100 * c.f1).toFixed(1)} · ${c.correct} correct · ${c.missed} missed · ${c.wrong} wrong</div></li>`).join("");
+}
+
+function showDocument(index) {
+  state.doc = index;
+  renderDocumentList();
+  const doc = DATA.documents[index];
+  const facts = documentFacts(doc, state.run).map(f => ({
+    ...f, from: f.fact[0], to: f.fact[2], label: relName(f.fact[1]),
+    score: f.pred ? f.pred[3] : null, evidence: f.status === "wrong" ? [] : f.fact[3],
+  }));
+  const nodes = doc.entities.map((e, i) => ({ id: i, label: e.name, type: e.type }));
+  draw(nodes, facts, selection => documentDetails(doc, selection));
+  const c = counts(facts);
+  $("details").innerHTML = `<h3>${escapeHtml(doc.title)}</h3>
+    <p>${doc.entities.length} entities · ${c.correct + c.missed} gold facts · ${c.correct + c.wrong} predicted ·
+    F1 ${(100 * c.f1).toFixed(1)}</p>${sentences(doc, new Set(), new Set())}`;
+}
+
+function sentences(doc, on, entities) {
+  // Mentions are not marked in the text, only the sentences: names of the selected entities are bolded.
+  const names = [...entities].map(i => doc.entities[i].name).filter(n => n.length > 2);
+  return doc.sents.map((s, i) => {
+    let html = escapeHtml(s);
+    names.forEach(n => { html = html.split(escapeHtml(n)).join("<b>" + escapeHtml(n) + "</b>"); });
+    return `<p class="sent ${on.has(i) ? "on" : ""}">[${i}] ${html}</p>`;
+  }).join("");
+}
+
+function documentDetails(doc, selection) {
+  if (selection.fact) {
+    const f = selection.fact, h = doc.entities[f.from], t = doc.entities[f.to];
+    const evidence = new Set(f.evidence || []);
+    const mentionSents = new Set([...h.sents, ...t.sents]);
+    const on = evidence.size ? evidence : mentionSents;
+    $("details").innerHTML = `<h3>${escapeHtml(h.name)} → <i>${escapeHtml(f.label)}</i> → ${escapeHtml(t.name)}
+      <span class="tag ${f.status}">${f.status}</span></h3>
+      <p>${f.score != null ? "Score " + f.score + " · " : ""}${f.fact[1]} · ${h.type} → ${t.type} ·
+      highlighted: ${evidence.size ? "gold evidence sentences" : "sentences that mention the pair"}</p>
+      ${sentences(doc, on, new Set([f.from, f.to]))}`;
+  } else {
+    const e = doc.entities[selection.node];
+    const facts = documentFacts(doc, state.run).filter(f => f.fact[0] === selection.node || f.fact[2] === selection.node);
+    $("details").innerHTML = `<h3>${escapeHtml(e.name)} <span class="empty">${e.type}</span></h3>
+      <p>${facts.map(f => `<span class="tag ${f.status}">${f.status}</span> ${escapeHtml(doc.entities[f.fact[0]].name)} →
+        ${escapeHtml(relName(f.fact[1]))} → ${escapeHtml(doc.entities[f.fact[2]].name)}`).join("<br>") || "No fact."}</p>
+      ${sentences(doc, new Set(e.sents), new Set([selection.node]))}`;
+  }
+}
+
+// ---------- Corpus view ----------
+const corpus = DATA.corpus;
+const degree = new Array(corpus.nodes.length).fill(0);
+corpus.gold.forEach(([h, , t]) => { degree[h]++; degree[t]++; });
+
+function corpusFacts(run) {
+  return compare(corpus.gold.map(([h, r, t, s]) => [h, r, t, s]),
+                 corpus.runs[run].map(([h, r, t, s, score]) => [h, r, t, s, score]));
+}
+
+function renderNodeList() {
+  const query = $("node-search").value.toLowerCase();
+  const rows = corpus.nodes.map((n, i) => ({ n, i }))
+    .filter(({ n }) => !query || n.label.toLowerCase().includes(query) || n.id.toLowerCase().includes(query))
+    .sort((a, b) => degree[b.i] - degree[a.i]).slice(0, 200);
+  $("list").innerHTML = rows.map(({ n, i }) =>
+    `<li data-index="${i}" class="${i === state.node ? "active" : ""}">${escapeHtml(n.label)}
+     <div class="meta">${escapeHtml(n.id)} · ${n.type} · ${degree[i]} gold facts · ${n.n_documents} documents</div></li>`).join("");
+}
+
+function showNode(index) {
+  state.node = index;
+  renderNodeList();
+  const hops = +$("hops").value;
+  const all = corpusFacts(state.run);
+  let frontier = new Set([index]), kept = new Set([index]);
+  for (let step = 0; step < hops; step++) {
+    const next = new Set();
+    all.forEach(({ fact: [h, , t] }) => {
+      if (frontier.has(h) && !kept.has(t)) next.add(t);
+      if (frontier.has(t) && !kept.has(h)) next.add(h);
+    });
+    next.forEach(n => kept.add(n));
+    frontier = next;
+  }
+  // Keep the drawing readable: at most MAX_FACTS facts, the ones touching the chosen entity first.
+  let facts = all.filter(({ fact: [h, , t] }) => kept.has(h) && kept.has(t));
+  facts.sort((a, b) => ((b.fact[0] === index || b.fact[2] === index) - (a.fact[0] === index || a.fact[2] === index)));
+  const total = facts.length;
+  facts = facts.slice(0, MAX_FACTS).map(f => ({
+    ...f, from: f.fact[0], to: f.fact[2], label: relName(f.fact[1]),
+    score: f.pred ? f.pred[4] : null, support: f.pred ? f.pred[3] : f.fact[3],
+  }));
+  const used = new Set([index]);
+  facts.forEach(f => { used.add(f.from); used.add(f.to); });
+  const nodes = [...used].map(i => ({ id: i, label: corpus.nodes[i].label, type: corpus.nodes[i].type,
+                                      focus: i === index, size: i === index ? 16 : 10 }));
+  draw(nodes, facts, selection => corpusDetails(selection));
+  const c = counts(facts), n = corpus.nodes[index];
+  $("details").innerHTML = `<h3>${escapeHtml(n.label)} <span class="empty">${escapeHtml(n.id)} · ${n.type}</span></h3>
+    <p>${nodes.length} entities · ${c.correct} correct · ${c.missed} missed · ${c.wrong} wrong
+    ${total > MAX_FACTS ? ` · ${MAX_FACTS} of ${total} facts drawn` : ""}
+    ${facts.length > MAX_LABELLED ? " · relation names hidden (hover an edge)" : ""}</p>
+    <p class="empty">Nodes merge across documents (Wikidata item, or normalised date and number).
+    An edge stated in several documents counts once; its score is the noisy-or of its scores.</p>`;
+}
+
+function corpusDetails(selection) {
+  if (selection.fact) {
+    const f = selection.fact, h = corpus.nodes[f.from], t = corpus.nodes[f.to];
+    $("details").innerHTML = `<h3>${escapeHtml(h.label)} → <i>${escapeHtml(f.label)}</i> → ${escapeHtml(t.label)}
+      <span class="tag ${f.status}">${f.status}</span></h3>
+      <p>${f.score != null ? "Score " + f.score + " · " : ""}stated in ${f.support} document(s) ·
+      ${escapeHtml(h.id)} → ${escapeHtml(t.id)}</p>`;
+  } else {
+    showNode(selection.node);
+  }
+}
+
+// ---------- Controls ----------
+function renderScores() {
+  const r = DATA.runs[state.run];
+  $("scores").innerHTML = `<span>fact F1 <b>${r.facts.f1}</b></span><span>P ${r.facts.precision} · R ${r.facts.recall}</span>
+    <span>graph F1 <b>${r.graph.f1}</b></span><span>${r.n_facts} facts · ${r.n_edges} edges</span>`;
+  $("pred-title").textContent = "Predicted graph: " + r.name;
+}
+
+function refresh() {
+  renderScores();
+  $("document-controls").hidden = state.view !== "document";
+  $("corpus-controls").hidden = state.view !== "corpus";
+  if (state.view === "document") showDocument(state.doc ?? 0);
+  else showNode(state.node ?? defaultNode());
+}
+
+function defaultNode() {
+  // A hub such as a country draws an unreadable star: open on an entity of medium size.
+  let best = 0;
+  corpus.nodes.forEach((n, i) => {
+    if (degree[i] <= 25 && (degree[i] > degree[best] || degree[best] > 25)) best = i;
+  });
+  return best;
+}
+
+$("split").textContent = "(" + DATA.split + ")";
+$("run").innerHTML = DATA.runs.map((r, i) => `<option value="${i}">${escapeHtml(r.name)}</option>`).join("");
+$("run").onchange = e => { state.run = +e.target.value; refresh(); };
+document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => {
+  document.querySelectorAll(".tabs button").forEach(x => x.classList.toggle("active", x === b));
+  state.view = b.dataset.view; refresh();
+});
+$("list").onclick = e => {
+  const li = e.target.closest("li");
+  if (li) state.view === "document" ? showDocument(+li.dataset.index) : showNode(+li.dataset.index);
+};
+$("doc-search").oninput = renderDocumentList;
+$("doc-sort").onchange = renderDocumentList;
+$("node-search").oninput = renderNodeList;
+$("hops").onchange = () => showNode(state.node);
+$("show-missed").onchange = refresh;
+$("show-labels").onchange = refresh;
+refresh();
+</script>
+</body>
+</html>
