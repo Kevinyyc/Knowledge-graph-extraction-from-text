@@ -32,9 +32,11 @@ python scripts/train_doc_model.py --run doc-tune4 --tune-layers 4 --pair-feature
 python scripts/evaluate.py results/doc-tune4 --leaderboard report/leaderboard.csv
 # knowledge graph of the facts kept by a run
 python scripts/build_graph.py --run results/doc-tune4 --split dev
+# HTML viewer: gold graph next to the graph of each run, by document or around an entity
+python scripts/visualize_graph.py --split dev --runs results/doc-tune-ens+old results/atlop-frozen
 ```
 
-Encoder states are cached once in `data/processed/features/`; every script keeps the epoch and the fact threshold with the best dev F1. `build_graph.py` writes the predictions, the graph (JSON and GraphML) and a report to `<run>/graph/`. Ensembles are built with `scripts/combine_runs.py`; [docs/analysis_v2.md](docs/analysis_v2.md) lists the commands of every run.
+Encoder states are cached once in `data/processed/features/`; every script keeps the epoch and the fact threshold with the best dev F1. `build_graph.py` writes the predictions, the graph (JSON and GraphML) and a report to `<run>/graph/`. `visualize_graph.py` writes `results/graph_viewer_<split>.html`: each fact is drawn correct, missed or wrong, with the evidence sentences of the document. Ensembles are built with `scripts/combine_runs.py`; [docs/analysis_v2.md](docs/analysis_v2.md) lists the commands of every run.
 
 ## Project structure
 

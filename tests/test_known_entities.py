@@ -179,3 +179,18 @@ def test_read_run_facts_maps_document_ids_to_positions(tmp_path):
         "doc_id,h,r,t,score\n42,0,P19,2,0.9\n7,1,P17,0,0.25\n")
     facts = read_run_facts(tmp_path, "dev", 0, [{"id": 7}, {"id": 42}])
     assert facts == {(1, 0, 2, "P19"): 0.9, (0, 1, 0, "P17"): 0.25}
+
+
+def test_viewer_marks_correct_missed_and_wrong_facts(docs):
+    from kg_extraction.graph.viewer import render_viewer, viewer_data
+
+    runs = {"run": {(0, 0, 1, "P19"): 0.9, (0, 1, 0, "P17"): 0.6}}
+    data = viewer_data(docs, {"P19": "place of birth"}, runs)
+    first = data["documents"][0]
+    assert first["runs"][0] == [[0, 1, "P19", 0.9], [1, 0, "P17", 0.6]]
+    assert data["corpus"]["nodes"][first["entities"][0]["node"]]["id"] == "wd:Q7259"
+    # Facts: 1 correct of 2 predicted and 3 gold. Graph: Ada-London stated twice is one edge.
+    assert data["runs"][0]["facts"] == {"precision": 50.0, "recall": 33.33, "f1": 40.0}
+    assert data["runs"][0]["graph"]["recall"] == 50.0
+    page = render_viewer(data)
+    assert "__VIEWER_DATA__" not in page and "place of birth" in page

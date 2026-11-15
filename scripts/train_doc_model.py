@@ -18,7 +18,7 @@ from pathlib import Path
 
 import torch
 
-from kg_extraction.data.linked_docred import load_relation_names, load_split
+from kg_extraction.data.linked_docred import load_relation_names, load_split, train_subset
 from kg_extraction.evaluation.relations import gold_facts
 from kg_extraction.evaluation.runs import write_shared_run
 from kg_extraction.relations.doc_encoder import (
@@ -74,6 +74,8 @@ def main():
     parser.add_argument("--learning-rate", type=float, default=3e-4)
     parser.add_argument("--patience", type=int, default=5)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--train-fraction", type=float, default=1.0,
+                        help="share of train documents kept, drawn with --seed (label efficiency)")
     parser.add_argument("--test", action="store_true", help="also predict test")
     args = parser.parse_args()
 
@@ -85,6 +87,9 @@ def main():
     dev = load_split(args.data_dir, "dev")
     entity_types = sorted({entity["type"] for doc in train for entity in doc["entities"]})
     train_items = load_items(args, "train", train, entity_types, device, relations)
+    if args.train_fraction < 1:
+        kept = train_subset(len(train_items), args.train_fraction, args.seed)
+        train_items = [train_items[index] for index in kept]
     dev_items = load_items(args, "dev", dev, entity_types, device)
     dev_gold = gold_facts(dev)
 
