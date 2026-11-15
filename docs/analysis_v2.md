@@ -95,7 +95,7 @@ The test rows are still `provisional`: they were computed once, with every choic
 - The two seeds of `doc-tune4` differ by 0.1 on dev and 0.2 on test, although one has 3 epochs less.
 - The frozen ensemble still adds +0.7 on top of the fine-tuned models: the encoders differ (deberta, PromptORE).
 - Dev F1 was flat over the last 3 epochs of `doc-tune4` (73.6): longer training is not the next gain.
-- For reference, ATLOP fully fine-tuned on a GPU has 77.6 test F1 on Re-DocRED (BERT-base, published).
+- For reference, ATLOP fully fine-tuned on a GPU has 77.6 test F1 on Re-DocRED (RoBERTa-large, published; see section 6 of the plan).
 
 ## 7. Limits
 
