@@ -1,5 +1,6 @@
 """Load Linked-Re-DocRED documents."""
 import json
+import random
 from pathlib import Path
 
 SPLIT_FILES = {
@@ -20,3 +21,8 @@ def load_relation_names(data_dir):
     """Return the mapping from Wikidata relation code to relation name."""
     with open(Path(data_dir) / "rel_info.json", encoding="utf-8") as file:
         return json.load(file)
+
+
+def train_subset(n_docs, fraction, seed):
+    """Return the sorted indices of a random share of the documents (label efficiency)."""
+    return sorted(random.Random(seed).sample(range(n_docs), max(1, round(fraction * n_docs))))
